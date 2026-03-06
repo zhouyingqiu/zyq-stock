@@ -1,0 +1,500 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>自选股实时看板 - 价差监控版</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <style>
+      body {
+        background-color: #f3f4f6;
+      }
+      [v-cloak] {
+        display: none;
+      }
+      .sort-icon {
+        transition: transform 0.2s;
+      }
+      .sort-asc .sort-icon {
+        transform: rotate(180deg);
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app" v-cloak class="min-h-screen p-4 md:p-8">
+      <header class="max-w-7xl mx-auto mb-6 flex justify-between items-center">
+        <div>
+          <h1 class="text-2xl font-bold text-gray-800">📊 自选股实时看板</h1>
+          <p class="text-sm text-gray-500 mt-1">
+            价差 = (可买入价 - 当前价) ÷ 当前价
+          </p>
+        </div>
+        <button
+          @click="fetchData"
+          class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition"
+        >
+          {{ loading ? '🔄 刷新中...' : '🔄 刷新' }}
+        </button>
+      </header>
+
+      <main class="max-w-7xl mx-auto">
+        <!-- 统计卡片 -->
+        <div class="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
+          <div class="bg-white p-4 rounded-xl shadow-sm">
+            <div class="text-gray-500 text-xs">股票数量</div>
+            <div class="text-2xl font-bold">{{ stockList.length }}</div>
+          </div>
+          <div class="bg-white p-4 rounded-xl shadow-sm">
+            <div class="text-gray-500 text-xs">🔴 上涨</div>
+            <div class="text-2xl font-bold text-red-500">{{ upCount }}</div>
+          </div>
+          <div class="bg-white p-4 rounded-xl shadow-sm">
+            <div class="text-gray-500 text-xs">🟢 下跌</div>
+            <div class="text-2xl font-bold text-green-600">{{ downCount }}</div>
+          </div>
+          <div class="bg-white p-4 rounded-xl shadow-sm">
+            <div class="text-gray-500 text-xs">✅ 可买入</div>
+            <div class="text-2xl font-bold text-emerald-600">
+              {{ buyableCount }}
+            </div>
+          </div>
+          <div class="bg-white p-4 rounded-xl shadow-sm">
+            <div class="text-gray-500 text-xs">⏳ 等待中</div>
+            <div class="text-2xl font-bold text-orange-500">
+              {{ waitingCount }}
+            </div>
+          </div>
+        </div>
+
+        <!-- 表格 -->
+        <div class="bg-white rounded-xl shadow-lg overflow-hidden">
+          <div class="overflow-x-auto">
+            <table class="w-full text-left">
+              <thead class="bg-gray-50">
+                <tr>
+                  <th class="p-4 font-semibold">股票</th>
+                  <th class="p-4 font-semibold">代码</th>
+                  <th class="p-4 font-semibold text-right">当前价</th>
+                  <th class="p-4 font-semibold text-right">涨跌额</th>
+                  <th
+                    class="p-4 font-semibold text-right cursor-pointer hover:bg-gray-100 transition select-none"
+                    @click="sortBy('percent')"
+                    :class="{ 'sort-asc': sortKey === 'percent' && sortOrder === 'asc' }"
+                  >
+                    <span class="inline-flex items-center gap-1">
+                      涨跌幅
+                      <svg
+                        v-if="sortKey === 'percent'"
+                        class="sort-icon w-3 h-3"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          stroke-width="2"
+                          d="M5 15l7-7 7 7"
+                        ></path>
+                      </svg>
+                      <svg
+                        v-else
+                        class="sort-icon w-3 h-3 opacity-30"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          stroke-width="2"
+                          d="M5 15l7-7 7 7"
+                        ></path>
+                      </svg>
+                    </span>
+                  </th>
+                  <th class="p-4 font-semibold text-right hidden md:table-cell">
+                    成交量
+                  </th>
+                  <th class="p-4 font-semibold text-right">可买入价</th>
+                  <th
+                    class="p-4 font-semibold text-right cursor-pointer hover:bg-gray-100 transition select-none"
+                    @click="sortBy('priceDiff')"
+                    :class="{ 'sort-asc': sortKey === 'priceDiff' && sortOrder === 'asc' }"
+                  >
+                    <span class="inline-flex items-center gap-1">
+                      价差%
+                      <svg
+                        v-if="sortKey === 'priceDiff'"
+                        class="sort-icon w-3 h-3"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          stroke-width="2"
+                          d="M5 15l7-7 7 7"
+                        ></path>
+                      </svg>
+                      <svg
+                        v-else
+                        class="sort-icon w-3 h-3 opacity-30"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          stroke-width="2"
+                          d="M5 15l7-7 7 7"
+                        ></path>
+                      </svg>
+                    </span>
+                  </th>
+                  <th class="p-4 font-semibold text-right hidden lg:table-cell">
+                    最高/最低
+                  </th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-gray-100">
+                <tr
+                  v-for="stock in sortedStocks"
+                  :key="stock.code"
+                  class="hover:bg-blue-50 transition cursor-pointer"
+                  @click="openDetail(stock)"
+                >
+                  <td class="p-4 font-bold text-gray-800">{{ stock.name }}</td>
+                  <td class="p-4">
+                    <span
+                      class="bg-gray-100 text-gray-600 text-xs px-2 py-1 rounded font-mono"
+                    >
+                      {{ stock.displayCode }}
+                    </span>
+                  </td>
+                  <td
+                    class="p-4 text-right font-mono font-bold"
+                    :class="getColorClass(stock.change)"
+                  >
+                    {{ formatPrice(stock.current) }}
+                  </td>
+                  <td
+                    class="p-4 text-right font-mono text-sm"
+                    :class="getColorClass(stock.change)"
+                  >
+                    {{ stock.change >= 0 ? '+' : '' }}{{ stock.change.toFixed(2)
+                    }}
+                  </td>
+                  <td class="p-4 text-right">
+                    <span
+                      class="px-2 py-1 rounded text-sm font-medium"
+                      :class="getBadgeClass(stock.percent)"
+                    >
+                      {{ stock.percent >= 0 ? '+' : '' }}{{
+                      stock.percent.toFixed(2) }}%
+                    </span>
+                  </td>
+                  <td
+                    class="p-4 text-right text-sm text-gray-600 hidden md:table-cell"
+                  >
+                    {{ formatVolume(stock.volume) }}
+                  </td>
+                  <td
+                    class="p-4 text-right font-mono font-medium text-gray-700"
+                  >
+                    {{ formatPrice(stock.canBuy) }}
+                  </td>
+                  <td class="p-4 text-right">
+                    <span
+                      class="px-2 py-1 rounded text-sm font-medium inline-block min-w-[70px]"
+                      :class="getPriceDiffClass(stock.priceDiff)"
+                    >
+                      {{ stock.priceDiff >= 0 ? '+' : '' }}{{
+                      stock.priceDiff.toFixed(2) }}%
+                    </span>
+                  </td>
+                  <td class="p-4 text-right text-sm hidden lg:table-cell">
+                    <span :class="getColorClass(stock.change)"
+                      >{{ formatPrice(stock.high) }}</span
+                    >
+                    <span class="text-gray-300 mx-1">/</span>
+                    <span :class="getColorClass(stock.change)"
+                      >{{ formatPrice(stock.low) }}</span
+                    >
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- 图例说明 -->
+        <div class="mt-4 flex flex-wrap gap-4 text-xs text-gray-500">
+          <span class="flex items-center gap-1">
+            <span
+              class="w-3 h-3 rounded bg-emerald-100 border border-emerald-300"
+            ></span>
+            价差 > 0：当前价低于目标价，可关注
+          </span>
+          <span class="flex items-center gap-1">
+            <span
+              class="w-3 h-3 rounded bg-red-100 border border-red-300"
+            ></span>
+            价差 < 0：当前价高于目标价，建议等待
+          </span>
+        </div>
+      </main>
+    </div>
+
+    <script>
+      const { createApp, ref, computed, onMounted } = Vue;
+
+      createApp({
+        setup() {
+          const stockList = ref([
+            { code: "sh601118", name: "海南橡胶", canBuy: 6.0 },
+            { code: "sh603977", name: "国泰集团", canBuy: 13.0 },
+            { code: "sh600500", name: "中化国际", canBuy: 4.0 },
+            { code: "sh601618", name: "中国中冶", canBuy: 3.15 },
+            { code: "sh603227", name: "雪峰科技", canBuy: 7.5 },
+            { code: "sh688707", name: "振华新材", canBuy: 13.0 },
+            { code: "sz002408", name: "齐翔腾达", canBuy: 5.5 },
+            { code: "sz002100", name: "天康生物", canBuy: 7.0 },
+            { code: "sz300034", name: "钢研高纳", canBuy: 20.0 },
+            { code: "sz002783", name: "凯龙股份", canBuy: 9.0 },
+            { code: "sz000928", name: "中钢国际", canBuy: 6.8 },
+            { code: "sz002136", name: "安 纳 达", canBuy: 12.0 },
+            { code: "sz000707", name: "双环科技", canBuy: 6.2 },
+            { code: "sz000731", name: "四川美丰", canBuy: 7.2 },
+          ]);
+
+          const rawData = ref({});
+          const loading = ref(false);
+          const sortKey = ref(""); // 'percent' | 'priceDiff'
+          const sortOrder = ref("desc"); // 'asc' | 'desc'
+
+          // ========== 腾讯接口解析 ==========
+          // ========== 修复后的 parseTencentData ==========
+          // 直接接收引号内的内容，不再做正则匹配
+          const parseTencentData = (code, content) => {
+            // content 已经是 "1~海南橡胶~601118~..." 格式，直接分割
+            const fields = content.split("~");
+
+            // 安全获取数值的辅助函数
+            const getFloat = (idx) => {
+              const val = fields[idx];
+              // 处理空值、非数字
+              if (val === undefined || val === "" || val === null) return 0;
+              const num = parseFloat(val);
+              return isNaN(num) ? 0 : num;
+            };
+
+            const getInt = (idx) => {
+              const val = fields[idx];
+              if (val === undefined || val === "" || val === null) return 0;
+              const num = parseInt(val);
+              return isNaN(num) ? 0 : num;
+            };
+
+            return {
+              // 名称可能有乱码，但不影响核心功能
+              name: fields[1] || "未知",
+              code: fields[2] || "",
+              current: getFloat(3), // [3] 当前价格 ✓
+              prevClose: getFloat(4), // [4] 昨收价 ✓
+              open: getFloat(5), // [5] 今开盘 ✓
+              volume: getInt(6), // [6] 成交量(手) ✓
+              change: getFloat(31), // [31] 涨跌额 ✓
+              percent: getFloat(32), // [32] 涨跌幅% ✓
+              high: getFloat(33), // [33] 最高价 ✓
+              low: getFloat(34), // [34] 最低价 ✓
+            };
+          };
+
+          // ========== 修复后的 fetchData ==========
+          const fetchData = () => {
+            loading.value = true;
+            const codes = stockList.value.map((s) => s.code).join(",");
+            // 去掉 url 中多余的空格
+            const url = `https://qt.gtimg.cn/q=${codes}`;
+
+            fetch(url)
+              .then((res) => res.text())
+              .then((text) => {
+                // 分割 + 清理 + 过滤
+                const lines = text
+                  .split(";")
+                  .map((l) => l.trim())
+                  .filter((l) => l.length > 0);
+
+                const tempData = {};
+
+                stockList.value.forEach((stock) => {
+                  // 匹配行（已 trim，直接匹配）
+                  const line = lines.find((l) =>
+                    l.startsWith(`v_${stock.code}=`),
+                  );
+
+                  if (line) {
+                    // 🔑 关键：提取引号内的内容（不含 v_xxx= 部分）
+                    const match = line.match(/="(.+)";?$/);
+
+                    if (match && match[1]) {
+                      // 🔑 直接传入 match[1]（引号内内容），parseTencentData 不再做正则
+                      const parsed = parseTencentData(stock.code, match[1]);
+
+                      if (parsed && parsed.current > 0) {
+                        // 兜底计算 change（如果接口返回 0）
+                        if (parsed.change === 0 && parsed.prevClose > 0) {
+                          parsed.change = parsed.current - parsed.prevClose;
+                        }
+                        tempData[stock.code] = parsed;
+                      }
+                    }
+                  }
+                });
+
+                rawData.value = tempData;
+                console.log(
+                  "✅ 解析完成:",
+                  Object.keys(tempData).length,
+                  "只股票",
+                );
+              })
+              .catch((err) => console.error("❌ 获取失败:", err))
+              .finally(() => (loading.value = false));
+          };
+
+          // ========== 核心计算属性 ==========
+          const processedStocks = computed(() => {
+            return stockList.value.map((config) => {
+              const data = rawData.value[config.code] || {};
+              const current = data.current || 0;
+              const canBuy = config.canBuy || 0;
+
+              // 价差% = (目标价 - 当前价) / 当前价 × 100
+              const priceDiff =
+                current > 0 ? ((canBuy - current) / current) * 100 : 0;
+
+              return {
+                ...config,
+                displayCode: config.code.replace("sh", "").replace("sz", ""),
+                current,
+                change: data.change || current - (data.prevClose || 0),
+                percent: data.percent || 0,
+                high: data.high || 0,
+                low: data.low || 0,
+                volume: data.volume || 0,
+                canBuy,
+                priceDiff, // 🔑 新增价差字段
+              };
+            });
+          });
+
+          const sortedStocks = computed(() => {
+            if (!sortKey.value) return processedStocks.value;
+
+            return [...processedStocks.value].sort((a, b) => {
+              const aVal = a[sortKey.value] || 0;
+              const bVal = b[sortKey.value] || 0;
+              const diff = aVal - bVal;
+              return sortOrder.value === "asc" ? diff : -diff;
+            });
+          });
+
+          // ========== 统计计算 ==========
+          const upCount = computed(
+            () => processedStocks.value.filter((s) => s.change > 0).length,
+          );
+          const downCount = computed(
+            () => processedStocks.value.filter((s) => s.change < 0).length,
+          );
+          const buyableCount = computed(
+            () => processedStocks.value.filter((s) => s.priceDiff > 0).length,
+          );
+          const waitingCount = computed(
+            () => processedStocks.value.filter((s) => s.priceDiff <= 0).length,
+          );
+
+          // ========== 工具函数 ==========
+          const formatPrice = (p) => (p > 0 ? p.toFixed(2) : "-");
+
+          const formatVolume = (v) => {
+            if (!v) return "-";
+            if (v >= 100000000) return (v / 100000000).toFixed(2) + "亿";
+            if (v >= 10000) return (v / 10000).toFixed(2) + "万";
+            return v.toLocaleString();
+          };
+
+          const getColorClass = (v) => {
+            if (v > 0) return "text-red-500";
+            if (v < 0) return "text-green-600";
+            return "text-gray-700";
+          };
+
+          const getBadgeClass = (v) => {
+            if (v > 0) return "bg-red-50 text-red-600 border border-red-100";
+            if (v < 0)
+              return "bg-green-50 text-green-600 border border-green-100";
+            return "bg-gray-100 text-gray-600";
+          };
+
+          // 🔑 价差颜色：正数(可买)绿色，负数(偏贵)红色
+          const getPriceDiffClass = (v) => {
+            if (v > 0)
+              return "bg-emerald-50 text-emerald-700 border border-emerald-200 font-semibold";
+            if (v < 0) return "bg-red-50 text-red-600 border border-red-100";
+            return "bg-gray-100 text-gray-600";
+          };
+
+          // 🔑 排序切换逻辑
+          const sortBy = (key) => {
+            if (sortKey.value === key) {
+              sortOrder.value = sortOrder.value === "asc" ? "desc" : "asc";
+            } else {
+              sortKey.value = key;
+              sortOrder.value = "desc"; // 默认降序：涨跌幅大的/价差大的在前
+            }
+          };
+
+          const openDetail = (stock) => {
+            const code = stock.displayCode;
+            const market = stock.code.startsWith("sh") ? "SH" : "SZ";
+            window.open(
+              `https://gu.qq.com/${market.toLocaleLowerCase()}${code}/gp`,
+              "_blank",
+            );
+          };
+
+          onMounted(() => {
+            fetchData();
+            setInterval(fetchData, 3000);
+          });
+
+          return {
+            stockList,
+            sortedStocks,
+            loading,
+            sortKey,
+            sortOrder,
+            upCount,
+            downCount,
+            buyableCount,
+            waitingCount,
+            fetchData,
+            sortBy,
+            formatPrice,
+            formatVolume,
+            getColorClass,
+            getBadgeClass,
+            getPriceDiffClass,
+            openDetail,
+          };
+        },
+      }).mount("#app");
+    </script>
+  </body>
+</html>
